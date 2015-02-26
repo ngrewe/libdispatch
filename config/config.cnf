@@ -32,6 +32,7 @@ issetugid
 kevent64
 mach_absolute_time
 malloc_create_zone
+posix_fadvise
 pthread_key_init_np
 pthread_workqueue_setdispatch_np
 pthread_main_np

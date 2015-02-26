@@ -27,6 +27,7 @@ dispatch_check_funcs(
     issetugid
     mach_absolute_time
     malloc_create_zone
+    posix_fadvise
     pthread_key_init_np
     pthread_main_np
     strlcpy
