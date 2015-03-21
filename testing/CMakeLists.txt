@@ -46,8 +46,8 @@ add_library(bsdtests SHARED
     shims/fgetln.h
 )
 target_link_libraries(bsdtests
-    LINK_PUBLIC -lm
-    LINK_PRIVATE libdispatch_shared ${KQUEUE_LIBRARIES}
+    LINK_PUBLIC ${BLOCKSRUNTIME_LIBRARIES} -lm
+    LINK_PRIVATE libdispatch_shared ${KQUEUE_LIBRARIES} -pthread
 )
 
 function (dispatch_test test_name)
