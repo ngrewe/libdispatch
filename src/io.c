@@ -64,6 +64,10 @@ static void _dispatch_disk_handler(void *ctx);
 static void _dispatch_disk_perform(void *ctxt);
 static void _dispatch_operation_advise(dispatch_operation_t op,
 		size_t chunk_size);
+static ssize_t _dispatch_operation_read(dispatch_operation_t op,
+		void *buf, size_t len, off_t off);
+static ssize_t _dispatch_operation_write(dispatch_operation_t op,
+		const void *buf, size_t len, off_t off);
 static int _dispatch_operation_perform(dispatch_operation_t op);
 static int _dispatch_operation_handle_error(dispatch_operation_t op, int err);
 static void _dispatch_operation_deliver_data(dispatch_operation_t op,
@@ -1975,6 +1979,61 @@ _dispatch_operation_advise(dispatch_operation_t op, size_t chunk_size)
 #endif
 }
 
+static ssize_t
+_dispatch_operation_read(dispatch_operation_t op,
+		void *buf, size_t len, off_t off)
+{
+	if (op->params.type == DISPATCH_IO_STREAM) {
+		return read(op->fd_entry->fd, buf, len);
+	} else if (op->params.type == DISPATCH_IO_RANDOM) {
+		return pread(op->fd_entry->fd, buf, len, off);
+	} else {
+		DISPATCH_CRASH("invalid io operation type");
+	}
+}
+
+static ssize_t
+_dispatch_operation_write(dispatch_operation_t op,
+		const void *buf, size_t len, off_t off)
+{
+	mode_t mode = op->fd_entry->stat.mode;
+	if (op->params.type == DISPATCH_IO_RANDOM) {
+		return pwrite(op->fd_entry->fd, buf, len, off);
+#if !DISPATCH_USE_SETNOSIGPIPE
+#if HAVE_DECL_MSG_NOSIGNAL
+	} else if (S_ISSOCK(mode)) {
+		return send(op->fd_entry->fd, buf, len, MSG_NOSIGNAL);
+#endif
+	} else if (S_ISSOCK(mode) || S_ISFIFO(mode)) {
+		ssize_t ret;
+		int write_err = 0;
+		sigset_t mask, prev_mask;
+		(void)dispatch_assume_zero(sigemptyset(&mask));
+		(void)dispatch_assume_zero(sigaddset(&mask, SIGPIPE));
+		(void)dispatch_assume_zero(
+				pthread_sigmask(SIG_BLOCK, &mask, &prev_mask));
+		do {
+			ret = write(op->fd_entry->fd, buf, len);
+		} while (ret == -1 && (write_err = errno) == EINTR);
+		if (write_err == EPIPE) {
+			struct timespec ts = {0, 0};
+			int err;
+			_dispatch_io_syscall_switch(err,
+				sigtimedwait(&mask, NULL, &ts),
+				case EAGAIN: break;
+				default: (void)dispatch_assume_zero(err); break;
+			);
+		}
+		(void)dispatch_assume_zero(
+				pthread_sigmask(SIG_SETMASK, &prev_mask, NULL));
+		errno = write_err;
+		return ret;
+#endif
+	} else {
+		return write(op->fd_entry->fd, buf, len);
+	}
+}
+
 static int
 _dispatch_operation_perform(dispatch_operation_t op)
 {
@@ -2053,17 +2112,9 @@ _dispatch_operation_perform(dispatch_operation_t op)
 	ssize_t processed = -1;
 syscall:
 	if (op->direction == DOP_DIR_READ) {
-		if (op->params.type == DISPATCH_IO_STREAM) {
-			processed = read(op->fd_entry->fd, buf, len);
-		} else if (op->params.type == DISPATCH_IO_RANDOM) {
-			processed = pread(op->fd_entry->fd, buf, len, off);
-		}
+		processed = _dispatch_operation_read(op, buf, len, off);
 	} else if (op->direction == DOP_DIR_WRITE) {
-		if (op->params.type == DISPATCH_IO_STREAM) {
-			processed = write(op->fd_entry->fd, buf, len);
-		} else if (op->params.type == DISPATCH_IO_RANDOM) {
-			processed = pwrite(op->fd_entry->fd, buf, len, off);
-		}
+		processed = _dispatch_operation_write(op, buf, len, off);
 	}
 	// Encountered an error on the file descriptor
 	if (processed == -1) {

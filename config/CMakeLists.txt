@@ -8,6 +8,7 @@ set (HAVE_PTHREAD_WORKQUEUES ${DISPATCH_ENABLE_PTHREAD_WORKQUEUE})
 dispatch_check_decls(CLOCK_UPTIME CLOCK_MONOTONIC INCLUDES time.h)
 dispatch_check_decls(F_RDADVISE INCLUDES fcntl.h)
 dispatch_check_decls(FD_COPY INCLUDES sys/select.h)
+dispatch_check_decls(MSG_NOSIGNAL INCLUDES sys/socket.h)
 dispatch_check_decls(POSIX_SPAWN_SETEXEC POSIX_SPAWN_START_SUSPENDED
     INCLUDES sys/spawn.h)
 dispatch_check_decls(SIGEMT INCLUDES signal.h)
