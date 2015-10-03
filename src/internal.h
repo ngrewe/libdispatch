@@ -233,9 +233,6 @@ DISPATCH_EXPORT DISPATCH_NOTHROW void dispatch_atfork_child(void);
 #include <inttypes.h>
 #include <limits.h>
 #include <search.h>
-#if USE_POSIX_SEM
-#include <semaphore.h>
-#endif
 #include <signal.h>
 #include <stdarg.h>
 #include <stdbool.h>
@@ -248,6 +245,13 @@ DISPATCH_EXPORT DISPATCH_NOTHROW void dispatch_atfork_child(void);
 #endif
 #if HAVE_UNISTD_H
 #include <unistd.h>
+#endif
+
+#if USE_POSIX_SEM
+#include <semaphore.h>
+#elif USE_FUTEX_SEM
+#include <sys/syscall.h>
+#include <linux/futex.h>
 #endif
 
 #if defined(__APPLE__)

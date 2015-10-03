@@ -29,6 +29,13 @@
 
 struct dispatch_queue_s;
 
+#if USE_FUTEX_SEM
+typedef struct {
+	/* Low 32 bits are the count; high bits are the waiter count. */
+	volatile uint64_t dfx_data;
+} dispatch_futex_t;
+#endif  /* USE_FUTEX_SEM */
+
 DISPATCH_CLASS_DECL(semaphore);
 struct dispatch_semaphore_s {
 	DISPATCH_STRUCT_HEADER(semaphore);
@@ -38,6 +45,8 @@ struct dispatch_semaphore_s {
 	sem_t dsema_sem;
 #elif USE_WIN32_SEM
 	HANDLE dsema_handle;
+#elif USE_FUTEX_SEM
+	dispatch_futex_t dsema_futex;
 #else
 #error "No supported semaphore type"
 #endif
@@ -88,5 +97,12 @@ _dispatch_put_thread_semaphore(_dispatch_thread_semaphore_t sema)
 		return _dispatch_thread_semaphore_dispose(old_sema);
 	}
 }
+
+#if USE_FUTEX_SEM
+int _dispatch_futex_init(dispatch_futex_t *dfx);
+int _dispatch_futex_dispose(dispatch_futex_t *dfx);
+int _dispatch_futex_signal(dispatch_futex_t *dfx);
+int _dispatch_futex_wait(dispatch_futex_t *dfx, const struct timespec *timeout);
+#endif  /* USE_FUTEX_SEM */
 
 #endif

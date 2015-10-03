@@ -208,7 +208,7 @@ if (NOT HAVE_WORKING_BUILTIN_FFS)
 endif ()
 
 set( HAVE_PTHREAD_WORKQUEUES 1 )
-set( USE_POSIX_SEM 1 )
+set( USE_FUTEX_SEM 1 )
 
 configure_file("config/config.h.cmake.in"
     "${dispatch_BINARY_DIR}/config/config.h"

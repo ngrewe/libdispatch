@@ -70,6 +70,8 @@ custom:
       Define if pthread work queues are present.
   - USE_POSIX_SEM:
       Define to use POSIX semaphores.
+  - USE_FUTEX_SEM:
+      Define to use Linux futexes to implement semaphores.
 
 # Darwin Specifics
   - USE_MACH_SEM:

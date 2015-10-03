@@ -189,6 +189,9 @@
 /* Define to use POSIX semaphores. */
 #cmakedefine01 USE_POSIX_SEM
 
+/* Define to use Linux futexes to implement semaphores. */
+#cmakedefine01 USE_FUTEX_SEM
+
 /* Define to use Mach semaphores. */
 #cmakedefine01 USE_MACH_SEM
 
