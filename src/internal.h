@@ -250,6 +250,27 @@ DISPATCH_EXPORT DISPATCH_NOTHROW void dispatch_atfork_child(void);
 #include <unistd.h>
 #endif
 
+#if defined(__APPLE__)
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+#define DISPATCH_LITTLE_ENDIAN
+#elif __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+#define DISPATCH_BIG_ENDIAN
+#endif
+
+#elif TARGET_OS_LINUX
+#include <endian.h>
+#if __BYTE_ORDER == __LITTLE_ENDIAN
+#define DISPATCH_LITTLE_ENDIAN
+#elif __BYTE_ORDER == __BIG_ENDIAN
+#define DISPATCH_BIG_ENDIAN
+#endif
+
+#endif  /* defined(__APPLE__) */
+
+#if !(defined(DISPATCH_BIG_ENDIAN) || defined(DISPATCH_LITTLE_ENDIAN))
+#error "Unable to determine platform endianness."
+#endif
+
 #ifndef __has_builtin
 #define __has_builtin(x) 0
 #endif
