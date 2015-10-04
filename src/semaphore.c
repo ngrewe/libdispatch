@@ -354,8 +354,8 @@ again:
 #elif USE_FUTEX_SEM
 		do {
 			uint64_t nsec = _dispatch_timeout(timeout);
-			_timeout.tv_sec = (time_t)(nsec / NSEC_PER_SEC);
-			_timeout.tv_nsec = (long)(nsec % NSEC_PER_SEC);
+			_timeout.tv_sec = nsec / NSEC_PER_SEC;
+			_timeout.tv_nsec = nsec % NSEC_PER_SEC;
 			ret = slowpath(
 					_dispatch_futex_wait(&dsema->dsema_futex, &_timeout));
 		} while (ret == -1 && errno == EINTR);
@@ -602,8 +602,8 @@ again:
 #elif USE_FUTEX_SEM
 		do {
 			uint64_t nsec = _dispatch_timeout(timeout);
-			_timeout.tv_sec = (time_t)(nsec / NSEC_PER_SEC);
-			_timeout.tv_nsec = (long)(nsec % NSEC_PER_SEC);
+			_timeout.tv_sec = nsec / NSEC_PER_SEC;
+			_timeout.tv_nsec = nsec % NSEC_PER_SEC;
 			ret = slowpath(
 					_dispatch_futex_wait(&dsema->dsema_futex, &_timeout));
 		} while (ret == -1 && errno == EINTR);
@@ -826,13 +826,13 @@ _dispatch_thread_semaphore_wait(_dispatch_thread_semaphore_t sema)
 	int ret;
 	do {
 		ret = sem_wait((sem_t *)sema);
-	} while (slowpath(ret != 0));
+	} while (slowpath(ret == -1 && errno == EINTR));
 	DISPATCH_SEMAPHORE_VERIFY_RET(ret);
 #elif USE_FUTEX_SEM
 	int ret;
 	do {
 		ret = _dispatch_futex_wait((dispatch_futex_t *)sema, NULL);
-	} while (slowpath(ret != 0 && errno == EINTR));
+	} while (slowpath(ret == -1 && errno == EINTR));
 	DISPATCH_SEMAPHORE_VERIFY_RET(ret);
 #elif USE_WIN32_SEM
 	DWORD wait_result;
@@ -894,7 +894,7 @@ _dispatch_futex_signal(dispatch_futex_t *dfx)
 int
 _dispatch_futex_wait(dispatch_futex_t *dfx, const struct timespec *timeout)
 {
-	if (fastpath(_dispatch_futex_trywait(dfx) == 0)) {
+	if (fastpath(!_dispatch_futex_trywait(dfx))) {
 		return 0;
 	}
 	return _dispatch_futex_wait_slow(dfx, timeout);
@@ -930,7 +930,7 @@ _dispatch_futex_wait_slow(dispatch_futex_t *dfx, const struct timespec *timeout)
 		int ret = _dispatch_futex_syscall(dfx, FUTEX_WAIT, 0, timeout);
 		dispatch_atomic_sub2o(
 				dfx, dfx_data, 1ull << DISPATCH_FUTEX_NWAITERS_SHIFT, relaxed);
-		switch (ret == 0 ? 0 : errno) {
+		switch (ret == -1 ? errno : 0) {
 		case EWOULDBLOCK:
 			if (!timeout) {
 				break;

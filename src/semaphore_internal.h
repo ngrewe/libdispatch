@@ -53,7 +53,9 @@ struct dispatch_semaphore_s {
 	long dsema_orig;
 	long volatile dsema_value;
 	union {
+#if USE_MACH_SEM
 		long volatile dsema_sent_ksignals;
+#endif
 		long volatile dsema_group_waiters;
 	};
 	struct dispatch_continuation_s *volatile dsema_notify_head;
