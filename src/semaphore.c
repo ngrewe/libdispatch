@@ -400,12 +400,12 @@ again:
 #elif USE_POSIX_SEM
 		do {
 			ret = sem_wait(&dsema->dsema_sem);
-		} while (ret != 0);
+		} while (ret == -1 && errno == EINTR);
 		DISPATCH_SEMAPHORE_VERIFY_RET(ret);
 #elif USE_FUTEX_SEM
 		do {
 			ret = _dispatch_futex_wait(&dsema->dsema_futex, NULL);
-		} while (ret != 0);
+		} while (ret == -1 && errno == EINTR);
 		DISPATCH_SEMAPHORE_VERIFY_RET(ret);
 #elif USE_WIN32_SEM
 		WaitForSingleObject(dsema->dsema_handle, INFINITE);
@@ -845,6 +845,7 @@ _dispatch_thread_semaphore_wait(_dispatch_thread_semaphore_t sema)
 }
 
 #if USE_FUTEX_SEM
+#define DISPATCH_FUTEX_NUM_SPINS 100
 #define DISPATCH_FUTEX_VALUE_MAX INT_MAX
 #define DISPATCH_FUTEX_NWAITERS_SHIFT 32
 #define DISPATCH_FUTEX_VALUE_MASK ((1ull << DISPATCH_FUTEX_NWAITERS_SHIFT) - 1)
@@ -882,7 +883,7 @@ _dispatch_futex_signal(dispatch_futex_t *dfx)
 		}
 	} while (!dispatch_atomic_cmpxchgvw2o(dfx, dfx_data, orig, orig + 1, &orig,
 										  release));
-	if (orig >> DISPATCH_FUTEX_NWAITERS_SHIFT) {
+	if (slowpath(orig >> DISPATCH_FUTEX_NWAITERS_SHIFT)) {
 		int ret = _dispatch_futex_syscall(dfx, FUTEX_WAKE, 1, NULL);
 		DISPATCH_SEMAPHORE_VERIFY_RET(ret);
 	}
@@ -893,7 +894,7 @@ _dispatch_futex_signal(dispatch_futex_t *dfx)
 int
 _dispatch_futex_wait(dispatch_futex_t *dfx, const struct timespec *timeout)
 {
-	if (!_dispatch_futex_trywait(dfx)) {
+	if (fastpath(_dispatch_futex_trywait(dfx) == 0)) {
 		return 0;
 	}
 	return _dispatch_futex_wait_slow(dfx, timeout);
@@ -918,29 +919,37 @@ DISPATCH_NOINLINE
 static int
 _dispatch_futex_wait_slow(dispatch_futex_t *dfx, const struct timespec *timeout)
 {
-	int spins = 100;
+	int spins = DISPATCH_FUTEX_NUM_SPINS;
 	// Spin for a short time (if there are no waiters).
 	while (spins-- && !dispatch_atomic_load2o(dfx, dfx_data, relaxed)) {
 		dispatch_hardware_pause();
 	}
-	int ret = 0;
 	while (_dispatch_futex_trywait(dfx)) {
 		dispatch_atomic_add2o(
 				dfx, dfx_data, 1ull << DISPATCH_FUTEX_NWAITERS_SHIFT, relaxed);
-		ret = _dispatch_futex_syscall(dfx, FUTEX_WAIT, 0, timeout);
+		int ret = _dispatch_futex_syscall(dfx, FUTEX_WAIT, 0, timeout);
 		dispatch_atomic_sub2o(
 				dfx, dfx_data, 1ull << DISPATCH_FUTEX_NWAITERS_SHIFT, relaxed);
 		switch (ret == 0 ? 0 : errno) {
 		case EWOULDBLOCK:
-			continue;
+			if (!timeout) {
+				break;
+			} else if (!_dispatch_futex_trywait(dfx)) {
+				return 0;
+			} else {
+				// Caller must recompute timeout.
+				errno = EINTR;
+				return -1;
+			}
 		case EINTR:
 		case ETIMEDOUT:
 			return -1;
 		default:
 			DISPATCH_SEMAPHORE_VERIFY_RET(ret);
+			break;
 		}
 	}
-	return ret;
+	return 0;
 }
 
 static int
@@ -952,7 +961,7 @@ _dispatch_futex_syscall(
 #elif DISPATCH_BIG_ENDIAN
 	int *addr = (int *)&dfx->dfx_data + 1;
 #endif
-	return syscall(SYS_futex, addr, op | FUTEX_PRIVATE_FLAG, val, timeout,
-			NULL, 0);
+	return (int)syscall(SYS_futex, addr, op | FUTEX_PRIVATE_FLAG, val, timeout,
+						NULL, 0);
 }
 #endif /* USE_FUTEX_SEM */
