@@ -57,19 +57,13 @@ valid_workq(pthread_workqueue_t workq)
 static void
 _pthread_workqueue_init2(void)
 {
-#ifdef NDEBUG
-    DEBUG_WORKQUEUE = 0;
-#else
     DEBUG_WORKQUEUE = (getenv("PWQ_DEBUG") == NULL) ? 0 : 1;
-#endif
 
-#ifndef _WIN32
     PWQ_RT_THREADS = (getenv("PWQ_RT_THREADS") == NULL) ? 0 : 1;
     PWQ_ACTIVE_CPU = (getenv("PWQ_ACTIVE_CPU") == NULL) ? 0 : atoi(getenv("PWQ_ACTIVE_CPU"));
     
     if (getenv("PWQ_SPIN_THREADS") != NULL)
         PWQ_SPIN_THREADS =  atoi(getenv("PWQ_SPIN_THREADS"));
-#endif
 
     if (manager_init() < 0) {
         fprintf(stderr, "FATAL: pthread_workqueue failed to initialise");
@@ -224,22 +218,16 @@ pthread_workqueue_peek_np(const char *key)
 void
 pthread_workqueue_suspend_np(void)
 {
-#ifndef _WIN32
     manager_suspend();
-#endif
 }
 
 void
 pthread_workqueue_resume_np(void)
 {
-#ifndef _WIN32
     manager_resume();
-#endif
 }
 
 /* no witem cache */
-
-#if (WITEM_CACHE_TYPE == 1)
 
 int
 witem_cache_init(void)
@@ -279,140 +267,6 @@ witem_cache_cleanup(void *value)
 }
 
 /* libumem based object cache */
-
-#elif (WITEM_CACHE_TYPE == 2)
-
-#include <umem.h>
-
-static umem_cache_t  *witem_cache;
-
-int
-witem_cache_init(void)
-{
-    witem_cache = umem_cache_create((char *) "witem_cache",   
-                                    sizeof(struct work),   
-                                    CACHELINE_SIZE,  
-                                    NULL,
-                                    NULL, 
-                                    NULL, 
-                                    NULL, 
-                                    NULL, 
-                                    0);
-    return (0);
-}
-
-struct work *
-witem_alloc(void (*func)(void *), void *func_arg)
-{
-	struct work *witem;
-    
-	while (!(witem = fastpath(umem_cache_alloc(witem_cache, UMEM_DEFAULT)))) {
-		sleep(1);
-	}
-    
-    witem->gencount = 0;
-    witem->flags = 0;
-    witem->item_entry.stqe_next = 0;
-    witem->func = func;
-    witem->func_arg = func_arg;
-
-	return witem;
-}
-
-void 
-witem_free(struct work *wi)
-{
-    umem_cache_free(witem_cache, wi);
-    return;
-}
-
-void
-witem_cache_cleanup(void *value)
-{
-    void * p;
-    p = value;
-}
-
-/* TSD based cacheing per thread */
-
-#elif (WITEM_CACHE_TYPE == 3)
-
-pthread_key_t witem_cache_key;
-
-int
-witem_cache_init(void)
-{
-    pthread_key_create(&witem_cache_key, witem_cache_cleanup);
-    return (0);
-}
-
-static struct work *
-witem_alloc_from_heap(void)
-{
-	struct work *witem;
-    
-	while (!(witem = fastpath(malloc(ROUND_UP_TO_CACHELINE_SIZE(sizeof(*witem)))))) {
-		sleep(1);
-	}
-    
-    witem->gencount = 0;
-    witem->flags = 0;
-    witem->item_entry.stqe_next = 0;
-
-	return witem;
-}
-
-struct work *
-witem_alloc(void (*func)(void *), void *func_arg)
-{
-    struct work *witem = fastpath(pthread_getspecific(witem_cache_key));
-	if (witem) 
-    {
-		pthread_setspecific(witem_cache_key, witem->wi_next);
-	}
-    else
-    {
-        witem = witem_alloc_from_heap();
-    }
-
-    witem->func = func;
-    witem->func_arg = func_arg;
-    
-	return witem;
-}
-
-void 
-witem_free(struct work *witem)
-{
-	struct work *prev_wi = pthread_getspecific(witem_cache_key);
-
-	witem->wi_next = prev_wi;
-    
-    // We need to initialize here also...
-    witem->gencount = 0;
-    witem->flags = 0;
-    witem->item_entry.stqe_next = 0;
-    witem->func = NULL;
-    witem->func_arg = NULL;
-
-	pthread_setspecific(witem_cache_key, witem);
-}
-
-void
-witem_cache_cleanup(void *value)
-{
-	struct work *wi, *next_wi = value;
-    
-	while ((wi = next_wi)) {
-		next_wi = wi->wi_next;
-		free(wi);
-	}
-}
-#else
-
-#error Invalid witem cache type specified
-
-#endif
 
 /* Environment setting */
 unsigned int PWQ_RT_THREADS = 0;
@@ -463,14 +317,6 @@ static struct {
 /* Thread limits */
 #define DEFAULT_PROCESS_LIMIT 100
 
-#if defined(__sun)
-#include <rctl.h>
-
-#define MIN_PROCESS_LIMIT 4
-#define MAX_PROCESS_LIMIT 1000
-#define THREADS_RESERVED  5 // arbitrary extra thread reservation
-#endif
-
 static unsigned int 
 worker_idle_threshold_per_cpu(void)
 {
@@ -499,14 +345,12 @@ worker_idle_threshold_per_cpu(void)
     return 2;
 }
 
-#if !defined(__ANDROID__)
 static void
 manager_reinit(void)
 {
     if (manager_init() < 0)
         abort();
 }
-#endif
 
 int
 manager_init(void)
@@ -547,46 +391,15 @@ manager_init(void)
     worker_idle_threshold = (PWQ_ACTIVE_CPU > 0) ? (PWQ_ACTIVE_CPU) : worker_idle_threshold_per_cpu();
 
 /* FIXME: should test for symbol instead of for Android */
-#if !defined(__ANDROID__)
     if (pthread_atfork(NULL, NULL, manager_reinit) < 0) {
         dbg_perror("pthread_atfork()");
         return (-1);
     }
-#endif
 
     return (0);
 }
 
 /* FIXME: should test for symbol instead of for Android */
-#if defined(__ANDROID__)
-
-#include <fcntl.h>
-
-int getloadavg(double loadavg[], int nelem)
-{
-   int fd;
-   ssize_t len;
-   char buf[80];
-
-   /* FIXME: this restriction allows the code to be simpler */
-   if (nelem != 1)
-       return (-1);
-
-   fd = open("/proc/loadavg", O_RDONLY);
-   if (fd < 0) 
-       return (-1); 
-
-   len = read(fd, &buf, sizeof(buf));
-   (void) close(fd);
-   if (len < 0) 
-       return (-1);
-
-   if (sscanf(buf, "%lf ", &loadavg[0]) < 1)
-       return (-1);
-
-   return (0); 
-}
-#endif /* defined(__ANDROID__) */
 
 void
 manager_workqueue_create(struct _pthread_workqueue *workq)
@@ -1171,7 +984,6 @@ manager_workqueue_additem(struct _pthread_workqueue *workq, struct work *witem)
 static unsigned int
 get_process_limit(void)
 {
-#if __linux__
     struct rlimit rlim;
 
     if (getrlimit(RLIMIT_NPROC, &rlim) < 0) {
@@ -1180,51 +992,6 @@ get_process_limit(void)
     } else {
         return (rlim.rlim_max);
     }
-#elif defined(__sun)
-
-    /* For Solaris we use resource controls as outlined at: */
-    /* http://docs.oracle.com/cd/E19082-01/819-2450/rmctrls.task-3/index.html */
-    /* To enable per-task limits, a project needs to be created and tasks run under this project*/
-    /* The default is essentially unlimited (2147483647), so we clamp it to MIN/MAX for sanity */
-    /* In practice we only support a more strict limit than MAX_PROCESS_LIMIT */
-
-    rctlblk_t *rblk;
-    int num = DEFAULT_PROCESS_LIMIT; // we only use the default if we fail to get it from OS
-    unsigned int threads_total = 0, current_thread_count = 0;
-
-    if ((rblk = (rctlblk_t *)malloc(rctlblk_size())) == NULL) 
-    {
-        dbg_perror("malloc()");
-        return num;
-    }
-    
-    if (getrctl("task.max-lwps", NULL, rblk, RCTL_FIRST) == -1)
-    {
-        dbg_perror("getrctl()");
-    }
-    else
-    {
-        num = rctlblk_get_value(rblk);
-        dbg_printf("task.max-lwps = %u", num);
-    }
-
-    free(rblk);  
-
-    if (threads_runnable(&current_thread_count, &threads_total) == 0)
-        num -= threads_total;  // Discount current number of running threads also
-
-    num -= THREADS_RESERVED;  // when task limits enabled, we will fail to create new threads, so leave some room here
-    
-    if (num < MIN_PROCESS_LIMIT)
-        num = MIN_PROCESS_LIMIT;
-    
-    if (num > MAX_PROCESS_LIMIT)
-        num = MAX_PROCESS_LIMIT;
-            
-    return (unsigned int) (num);
-#else
-    return (DEFAULT_PROCESS_LIMIT);
-#endif
 }
 
 static unsigned int
@@ -1235,11 +1002,7 @@ get_runqueue_length(void)
     /* Prefer to use the most recent measurement of the number of running KSEs
     for Linux and the kstat unix:0:sysinfo: runque/updates ratio for Solaris . */
 
-#if __linux__
     return linux_get_runqueue_length();
-#elif defined(__sun)
-    return solaris_get_runqueue_length();
-#endif
 
     /* Fallback to using the 1-minute load average if proper run queue length can't be determined. */
 
@@ -1280,71 +1043,11 @@ manager_peek(const char *key)
 
 // Default POSIX implementation doesn't support it, platform-specific code does though.
 
-#if !(defined(__linux__) || defined(__sun))
-
-int threads_runnable(unsigned int *threads_running, unsigned int *threads_total)
-{
-    (void) threads_running;
-    (void) threads_total;
-    return -1;
-}
-
-#endif
-
 // Default POSIX implementation doesn't support it, platform-specific code does though.
-
-#if !(defined(__linux__) || defined(__sun))
-
-void ptwq_set_current_thread_priority(int priority)
-{    
-    (void) priority;
-    return;
-}
-
-#endif
 
 /* Problem: does not include the length of the runqueue, and
      subtracting one from the # of actually running processes will
      always show free CPU even when there is none. */
-#ifdef DEADWOOD 
-unsigned int
-linux_get_kse_count(void)
-{
-    int     fd, nkse;
-    char    buf[100];
-    char   *p;
-    ssize_t len;
-
-    fd = open("/proc/loadavg", O_RDONLY | O_CLOEXEC);
-    if (fd < 0) {
-        dbg_perror("open() of /proc/loadavg");
-        return (-1);
-    }
-
-    len = read(fd, &buf, sizeof(buf));
-    if (len < 0) {
-        dbg_perror("read() of /proc/loadavg");
-        return (-1);
-    }
-
-    /* See proc(5) for the format of the output of /proc/loadavg. 
-     * We are only interested in the first part of the fourth field:
-     *   the number of currently executing kernel scheduling entities
-     */
-    p = strchr((char *) &buf[0], '/');
-    if (p == NULL)
-        return (-1);
-    *p-- = '\0';
-    while (*p != ' ') {
-        p--;
-    }
-    nkse = atoi(p + 1);
-
-    (void) close(fd);
-
-    return ((unsigned int) nkse);
-}
-#endif /*DEADWOOD*/
 
 unsigned int
 linux_get_runqueue_length(void)
@@ -1444,11 +1147,7 @@ static int _read_file(const char *path, char *result)
 
     actual_read = read(read_fd, result, MAX_RESULT_SIZE);
 	
-# ifdef __ia64__
-    dbg_printf("read %ld from %s", actual_read, path);
-# else
     dbg_printf("read %zu from %s", (size_t) actual_read, path);
-#endif
 
     if (actual_read == 0)
     {

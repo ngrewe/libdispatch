@@ -34,11 +34,7 @@
 #include <pthread.h>
 
 #ifndef PWQ_EXPORT
-#if _WIN32
-#define PWQ_EXPORT extern __declspec(dllimport)
-#else
 #define PWQ_EXPORT extern
-#endif
 #endif
 
 typedef struct _pthread_workqueue * pthread_workqueue_t;
@@ -130,25 +126,13 @@ void pthread_workqueue_resume_np(void);
 extern int DEBUG_WORKQUEUE;
 extern char *WORKQUEUE_DEBUG_IDENT;
 
-#if defined(__linux__)
-
 #include <linux/unistd.h>
 #include <sys/syscall.h>
 #include <unistd.h>
 
 # define THREAD_ID ((pid_t)  syscall(__NR_gettid))
-#elif defined(__sun)
-# define THREAD_ID (pthread_self())
-#elif defined(__FreeBSD__)  /* FIXME -- could use thr_self() */
-# define THREAD_ID (0)
-#elif defined(_WIN32)
-# define THREAD_ID (int)(GetCurrentThreadId())
-#else 
-# error Unsupported platform
-#endif
 
 
-#ifndef NDEBUG
 #define dbg_puts(str)           do {                                \
     if (DEBUG_WORKQUEUE)                                                      \
       fprintf(stderr, "%s [%d]: %s(): %s\n",                        \
@@ -170,23 +154,7 @@ extern char *WORKQUEUE_DEBUG_IDENT;
 
 # define reset_errno()          do { errno = 0; } while (0)
 
-# if defined(_WIN32)
-#  define dbg_lasterror(str)     do {                                \
-    if (DEBUG_WORKQUEUE)                                                      \
-      fprintf(stderr, "%s: [%d] %s(): %s: (LastError=%d)\n",        \
-              THREAD_ID, __func__, str, GetLastError());            \
-} while (0)
-# else
 #  define dbg_lasterror(str)     ;
-# endif
-
-#else /* NDEBUG */
-# define dbg_puts(str)           ;
-# define dbg_printf(fmt,...)     ;
-# define dbg_perror(str)         ;
-# define dbg_lasterror(str)      ;
-# define reset_errno()           ;
-#endif 
 
 #endif  /* ! _DEBUG_H */
 
@@ -240,10 +208,6 @@ extern unsigned int PWQ_ACTIVE_CPU;
 
 #define _hardware_pause()  __asm__ __volatile__("pause");
 
-#elif defined(_WIN32)
-
-#define _hardware_pause() do { __asm{_emit 0xf3}; __asm {_emit 0x90}; } while (0)
-
 #else
 
 #define _hardware_pause() __asm__("pause")
@@ -270,11 +234,7 @@ extern unsigned int PWQ_ACTIVE_CPU;
  * 3. TSD based cache, modelled on libdispatch continuation implementation, can lead to imbalance with assymetric 
  *    producer/consumer threads as allocated memory is cached by the thread freeing it
  */
-#if defined(__sun)
-#define WITEM_CACHE_TYPE 2 // Use libumem on Solaris by default
-#else
 #define WITEM_CACHE_TYPE 1 // Otherwise fallback to normal malloc/free - change specify witem cache implementation to use
-#endif
 
 struct work {
     STAILQ_ENTRY(work)   item_entry; 
@@ -282,9 +242,6 @@ struct work {
     void                *func_arg;
     unsigned int         flags;
     unsigned int         gencount;
-#if (WITEM_CACHE_TYPE == 3)
-	struct work *volatile wi_next;
-#endif
 };
 
 struct _pthread_workqueue {
@@ -345,41 +302,20 @@ void ptwq_set_current_thread_priority(int priority); // higher is better
 #include <unistd.h>
 #include <pthread.h>
 
-#ifdef __sun
-# include <sys/loadavg.h>
-#endif
-
 /* GCC atomic builtins. 
  * See: http://gcc.gnu.org/onlinedocs/gcc-4.1.0/gcc/Atomic-Builtins.html 
  */
-#ifdef __sun
-# include <atomic.h>
-# define atomic_inc      atomic_inc_32
-# define atomic_dec      atomic_dec_32
-# define atomic_inc_nv   atomic_inc_32_nv
-# define atomic_dec_nv   atomic_dec_32_nv
-# define atomic_and      atomic_and_uint_nv
-# define atomic_or      atomic_or_uint_nv
-#else
 # define atomic_inc(p)   (void) __sync_add_and_fetch((p), 1)
 # define atomic_dec(p)   (void) __sync_sub_and_fetch((p), 1)
 # define atomic_inc_nv(p)  __sync_add_and_fetch((p), 1)
 # define atomic_dec_nv(p)  __sync_sub_and_fetch((p), 1)
 # define atomic_and(p,v)   __sync_and_and_fetch((p), (v))
 # define atomic_or(p,v)   __sync_or_and_fetch((p), (v))
-#endif
 
 /*
  * Android does not provide spinlocks.
  * See: http://code.google.com/p/android/issues/detail?id=21622
  */
-#if defined(__ANDROID__)
-#define pthread_spinlock_t     pthread_mutex_t
-#define pthread_spin_lock      pthread_mutex_lock
-#define pthread_spin_unlock    pthread_mutex_unlock
-#define pthread_spin_init(a,b) pthread_mutex_init((a), NULL)
-#define pthread_spin_destroy   pthread_mutex_destroy
-#endif /* defined(__ANDROID__) */
 
 #endif  /* _PTWQ_POSIX_PLATFORM_H */
 
@@ -396,12 +332,5 @@ unsigned int linux_get_runqueue_length(void);
  * Android does not provide spinlocks.
  * See: http://code.google.com/p/android/issues/detail?id=21622
  */
-#if defined(__ANDROID__)
-#define pthread_spinlock_t     pthread_mutex_t
-#define pthread_spin_lock      pthread_mutex_lock
-#define pthread_spin_unlock    pthread_mutex_unlock
-#define pthread_spin_init(a,b) pthread_mutex_init((a), NULL)
-#define pthread_spin_destroy   pthread_mutex_destroy
-#endif /* defined(__ANDROID__) */
 
 #endif /* _LIBPWQ_LINUX_PLATFORM_H */
