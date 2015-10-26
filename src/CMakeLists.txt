@@ -18,6 +18,12 @@ if (DISPATCH_ENABLE_BLOCKS)
     )
 endif ()
 
+if (DISPATCH_ENABLE_PTHREAD_WORKQUEUE)
+    list (APPEND sources
+        workqueue.c
+    )
+endif ()
+
 include_directories (
     "${dispatch_SOURCE_DIR}"
     "${dispatch_BINARY_DIR}"
@@ -27,9 +33,6 @@ include_directories (
     ${KQUEUE_INCLUDE_DIRS}
 )
 
-if (DISPATCH_ENABLE_PTHREAD_WORKQUEUE)
-    include_directories(${PTHREAD_WORKQUEUE_INCLUDE_DIRS})
-endif ()
 if (DISPATCH_ENABLE_BLOCKS)
     include_directories(${BLOCKSRUNTIME_INCLUDE_DIRS})
 endif ()
@@ -60,7 +63,6 @@ set(version_script
 dispatch_add_file_dependencies(libdispatch_shared "${version_script}")
 
 target_link_libraries(libdispatch_shared LINK_PRIVATE
-    ${PTHREAD_WORKQUEUE_LIBRARIES}
     ${KQUEUE_LIBRARIES}
     ${BLOCKSRUNTIME_LIBRARIES}
     rt
@@ -79,13 +81,6 @@ if (DISPATCH_USE_PRIVATE_KQUEUE)
 else ()
     target_link_libraries(libdispatch_static LINK_PRIVATE
         ${KQUEUE_LIBRARIES})
-endif ()
-
-if (DISPATCH_USE_PRIVATE_PTHREAD_WORKQUEUE)
-    list(APPEND partial_link_libs ${PTHREAD_WORKQUEUE_LIBRARIES})
-elseif (DISPATCH_ENABLE_PTHREAD_WORKQUEUE)
-    target_link_libraries(libdispatch_static LINK_PRIVATE
-        ${PTHREAD_WORKQUEUE_LIBRARIES})
 endif ()
 
 if (DISPATCH_USE_PRIVATE_BLOCKSRUNTIME)

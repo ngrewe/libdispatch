@@ -32,22 +32,12 @@ cmake_dependent_option(
     TRUE
     DISPATCH_ENABLE_BLOCKS
     FALSE)
-cmake_dependent_option(
-    DISPATCH_USE_PRIVATE_PTHREAD_WORKQUEUE
-    "Whether to use libdispatch's private pthread workqueues implementation"
-    TRUE
-    DISPATCH_ENABLE_PTHREAD_WORKQUEUE
-    FALSE)
 option (DISPATCH_USE_PRIVATE_KQUEUE
     "Whether to use libdispatch's private kqueue implementation"
     TRUE)
 
 option (DISPATCH_USE_LIBDISPATCH_INIT_CONSTRUCTOR
     "Use libdispatch_init as a constructor" TRUE)
-
-if (NOT DISPATCH_ENABLE_PTHREAD_WORKQUEUE)
-    set (CMAKE_DISABLE_FIND_PACKAGE_pthread_workqueue 1)
-endif ()
 
 if (NOT DISPATCH_ENABLE_BLOCKS)
     set (CMAKE_DISABLE_FIND_PACKAGE_BlocksRuntime 1)
@@ -119,26 +109,6 @@ else ()
         dispatch_check_funcs( kevent64 )
     cmake_pop_check_state()
 endif()
-
-if (DISPATCH_USE_PRIVATE_PTHREAD_WORKQUEUE)
-    dispatch_add_subproject(pthread_workqueue
-        SOURCE_DIR thirdparty/libpthread_workqueue
-        INSTALL_PREFIX thirdparty/pthread_workqueue-subproject
-        LIBRARY lib/libpthread_workqueue.a
-        LIBRARY_DEBUG lib/libpthread_workqueueD.a)
-
-elseif (DISPATCH_ENABLE_PTHREAD_WORKQUEUE)
-    find_package(pthread_workqueue)
-
-    if (PTHREAD_WORKQUEUE_FOUND)
-        dispatch_search_libs(pthread_workqueue_setdispatch_np LIBRARIES
-            "${PTHREAD_WORKQUEUE_LIBRARIES}")
-    else ()
-        set(DISPATCH_ENABLE_PTHREAD_WORKQUEUE FALSE)
-        message(WARNING "Pthread Workqueues were not found; libdispatch will "
-                        "fall back to its naive thread pool implementation.")
-    endif ()
-endif ()
 
 if (DISPATCH_ENABLE_BLOCKS AND NOT COMPILER_SUPPORTS_BLOCKS)
     set(DISPATCH_ENABLE_BLOCKS FALSE)

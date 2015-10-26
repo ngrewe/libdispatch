@@ -52,10 +52,6 @@ def shelljoin(args):
     '--system-kqueue', is_flag=True, default=False,
     help="Use the system-provided libkqueue instead of the one that comes "
     "with libdispatch. *Not recommended nor supported.*")
-@click.option(
-    '--system-pthread-workqueue', is_flag=True, default=False,
-    help="Use the system-provided libBlocksRuntime instead of the one that "
-    "comes with libdispatch. *Not recommended nor supported.*")
 @click.argument('extra-cmake-args', nargs=-1)
 def configure(
         ctx,
@@ -70,7 +66,6 @@ def configure(
         clang_sanitizers,
         system_blocks_runtime,
         system_kqueue,
-        system_pthread_workqueue,
         extra_cmake_args):
     """Script for configuring libdispatch's build."""
     command_line = []
@@ -88,8 +83,6 @@ def configure(
         '-DDISPATCH_SANITIZE={0}'.format(clang_sanitizers),
         '-DDISPATCH_USE_PRIVATE_BLOCKSRUNTIME={0}'.format(
             int(not system_blocks_runtime)),
-        '-DDISPATCH_USE_PRIVATE_PTHREAD_WORKQUEUE={0}'.format(
-            int(not system_pthread_workqueue)),
         '-DDISPATCH_USE_PRIVATE_KQUEUE={0}'.format(int(not system_kqueue)),
 
         '--no-warn-unused-cli',
