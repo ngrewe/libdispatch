@@ -1,26 +1,41 @@
 language: cpp
 matrix:
-    include:
-        - compiler: clang
-          env: DISPATCH_ENABLE_TEST_SUITE=1
-        - compiler: clang
-          env: DISPATCH_BUILD_TYPE=Debug DISPATCH_ENABLE_TEST_SUITE=1
-        - compiler: clang
-          env: DISPATCH_SANITIZE=address,undefined DISPATCH_ENABLE_TEST_SUITE=1
-        - compiler: gcc
-        - compiler: gcc
-          env: DISPATCH_BUILD_TYPE=Debug
+  include:
+  - {compiler: gcc, env: DISPATCH_BUILD_TYPE=Release DISPATCH_COMPILER=gcc DISPATCH_SYSTEM_LIBS=1}
+  - {compiler: gcc, env: DISPATCH_BUILD_TYPE=Release DISPATCH_COMPILER=gcc}
+  - {compiler: gcc, env: DISPATCH_BUILD_TYPE=Debug DISPATCH_COMPILER=gcc DISPATCH_SYSTEM_LIBS=1}
+  - {compiler: gcc, env: DISPATCH_BUILD_TYPE=Debug DISPATCH_COMPILER=gcc}
+  - {compiler: clang, env: DISPATCH_BUILD_TYPE=Release DISPATCH_COMPILER=clang DISPATCH_SYSTEM_LIBS=1}
+  - {compiler: clang, env: DISPATCH_BUILD_TYPE=Debug DISPATCH_COMPILER=clang DISPATCH_SYSTEM_LIBS=1}
+  - {compiler: clang, env: 'DISPATCH_BUILD_TYPE=Release DISPATCH_COMPILER=clang DISPATCH_ENABLE_TEST_SUITE=1
+      DISPATCH_SANITIZE=address,undefined'}
+  - {compiler: clang, env: 'DISPATCH_BUILD_TYPE=Release DISPATCH_COMPILER=clang DISPATCH_ENABLE_TEST_SUITE=1
+      DISPATCH_SANITIZE=address,undefined DISPATCH_SYSTEM_LIBS=1'}
+  - {compiler: clang, env: DISPATCH_BUILD_TYPE=Debug DISPATCH_COMPILER=clang DISPATCH_ENABLE_TEST_SUITE=1}
+  - {compiler: clang, env: DISPATCH_BUILD_TYPE=Debug DISPATCH_COMPILER=clang DISPATCH_ENABLE_TEST_SUITE=1
+      DISPATCH_SYSTEM_LIBS=1}
+  - {compiler: clang, env: DISPATCH_BUILD_TYPE=Release DISPATCH_COMPILER=clang DISPATCH_ENABLE_TEST_SUITE=1}
+  - {compiler: clang, env: DISPATCH_BUILD_TYPE=Release DISPATCH_COMPILER=clang DISPATCH_ENABLE_TEST_SUITE=1
+      DISPATCH_SYSTEM_LIBS=1}
 install:
 - |
-  sudo apt-get update -qq
-  sudo apt-get install -qq \
-    libblocksruntime-dev libkqueue-dev  libpthread-workqueue-dev wbritish
+  sudo apt-get -qq update
+  if [[ "${DISPATCH_SYSTEM_LIBS:-}" -eq 1 ]]; then
+    sudo apt-get -qq install \
+      libblocksruntime-dev libkqueue-dev libpthread-workqueue-dev
+  fi
   if [[ "${DISPATCH_ENABLE_TEST_SUITE:-}" -eq 1 ]]; then
     sudo pip install pytest
   fi
 
 before_script:
 - |
+  if [[ "${DISPATCH_SYSTEM_LIBS:-}" -eq 1 ]]; then
+    export DISPATCH_SYSTEM_BLOCKS_RUNTIME=1
+    export DISPATCH_SYSTEM_PTHREAD_WORKQUEUE=1
+    export DISPATCH_SYSTEM_KQUEUE=1
+  fi
+
   if [[ "${DISPATCH_ENABLE_TEST_SUITE:-}" -eq 1 ]]; then
     if [[ "${DISPATCH_BUILD_TYPE:-}" == "Debug" ]]; then
       export LIBDISPATCH_LOG=0
