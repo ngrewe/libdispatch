@@ -36,12 +36,14 @@
 #include <limits.h>
 #include <semaphore.h>
 #include <signal.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+#include <sys/resource.h>
 #include <sys/time.h>
 #include <sys/types.h>
 
-unsigned int PWQ_ACTIVE_CPU = 0;
 int DEBUG_WORKQUEUE = 0;
 char *WORKQUEUE_DEBUG_IDENT = "WQ";
 
@@ -56,13 +58,6 @@ valid_workq(pthread_workqueue_t workq) {
 static void
 _pthread_workqueue_init2(void) {
 	DEBUG_WORKQUEUE = (getenv("PWQ_DEBUG") == NULL) ? 0 : 1;
-
-	PWQ_RT_THREADS = (getenv("PWQ_RT_THREADS") == NULL) ? 0 : 1;
-	PWQ_ACTIVE_CPU =
-		(getenv("PWQ_ACTIVE_CPU") == NULL) ? 0 : atoi(getenv("PWQ_ACTIVE_CPU"));
-
-	if (getenv("PWQ_SPIN_THREADS") != NULL)
-		PWQ_SPIN_THREADS = atoi(getenv("PWQ_SPIN_THREADS"));
 
 	if (manager_init() < 0) {
 		fprintf(stderr, "FATAL: pthread_workqueue failed to initialise");
@@ -197,23 +192,6 @@ pthread_workqueue_attr_setqueuepriority_np(pthread_workqueue_attr_t *attr,
 		return (EINVAL);
 }
 
-unsigned long
-pthread_workqueue_peek_np(const char *key) {
-	return manager_peek(key);
-}
-
-void
-pthread_workqueue_suspend_np(void) {
-	manager_suspend();
-}
-
-void
-pthread_workqueue_resume_np(void) {
-	manager_resume();
-}
-
-/* no witem cache */
-
 int
 witem_cache_init(void) {
 	return (0);
@@ -247,15 +225,6 @@ void
 witem_cache_cleanup(void *value) {
 	(void)value;
 }
-
-/* libumem based object cache */
-
-/* Environment setting */
-unsigned int PWQ_RT_THREADS = 0;
-unsigned int PWQ_SPIN_THREADS =
-	0;  // The number of threads that should be kept spinning
-unsigned volatile int current_threads_spinning =
-	0;  // The number of threads currently spinning
 
 /* Tunable constants */
 
@@ -351,9 +320,7 @@ manager_init(void) {
 
 	witem_cache_init();
 
-	cpu_count = (PWQ_ACTIVE_CPU > 0)
-					? (PWQ_ACTIVE_CPU)
-					: (unsigned int)sysconf(_SC_NPROCESSORS_ONLN);
+	cpu_count = (unsigned int)sysconf(_SC_NPROCESSORS_ONLN);
 
 	pthread_attr_init(&detached_attr);
 	pthread_attr_setdetachstate(&detached_attr, PTHREAD_CREATE_DETACHED);
@@ -372,11 +339,8 @@ manager_init(void) {
 	/* Determine the initial thread pool constraints */
 	worker_min = 2;  // we can start with a small amount, worker_idle_threshold
 					 // will be used as new dynamic low watermark
-	worker_idle_threshold = (PWQ_ACTIVE_CPU > 0)
-								? (PWQ_ACTIVE_CPU)
-								: worker_idle_threshold_per_cpu();
+	worker_idle_threshold = worker_idle_threshold_per_cpu();
 
-	/* FIXME: should test for symbol instead of for Android */
 	if (pthread_atfork(NULL, NULL, manager_reinit) < 0) {
 		dbg_perror("pthread_atfork()");
 		return (-1);
@@ -384,8 +348,6 @@ manager_init(void) {
 
 	return (0);
 }
-
-/* FIXME: should test for symbol instead of for Android */
 
 void
 manager_workqueue_create(struct _pthread_workqueue *workq) {
@@ -539,30 +501,6 @@ wqlist_scan(int *queue_priority, int skip_thread_exit_events) {
 	return (witem);  // NULL if multiple threads raced for the same queue
 }
 
-// Optional busy loop for getting the next item for a while if so configured
-// We'll only spin limited number of threads at a time (this is really mostly
-// useful when running in low latency configurations using dedicated processor
-// sets, usually a single spinner makes sense)
-
-static struct work *
-wqlist_scan_spin(int *queue_priority) {
-	struct work *witem = NULL;
-
-	// Start spinning if relevant, otherwise skip and go through
-	// the normal wqlist_scan_wait slowpath by returning the NULL witem.
-	if (atomic_inc_nv(&current_threads_spinning) <= PWQ_SPIN_THREADS) {
-		while ((witem = wqlist_scan(queue_priority, 1)) == NULL)
-			_hardware_pause();
-
-		/* Force the manager thread to wakeup if we are the last idle one */
-		if (scoreboard.idle == 1) (void)sem_post(&scoreboard.sb_sem);
-	}
-
-	atomic_dec(&current_threads_spinning);
-
-	return witem;
-}
-
 // Normal slowpath for waiting on the condition for new work
 // here we also exit workers when needed
 static struct work *
@@ -595,7 +533,6 @@ wqlist_scan_wait(int *queue_priority) {
 static void *
 worker_main(void *unused __attribute__((unused))) {
 	struct work *witem;
-	int current_thread_priority = WORKQ_DEFAULT_PRIOQUEUE;
 	int queue_priority = WORKQ_DEFAULT_PRIOQUEUE;
 
 	dbg_puts("worker thread started");
@@ -605,14 +542,7 @@ worker_main(void *unused __attribute__((unused))) {
 		witem = wqlist_scan(&queue_priority, 1);
 
 		if (!witem) {
-			witem = wqlist_scan_spin(&queue_priority);
-
-			if (!witem) witem = wqlist_scan_wait(&queue_priority);
-		}
-
-		if (PWQ_RT_THREADS && (current_thread_priority != queue_priority)) {
-			current_thread_priority = queue_priority;
-			ptwq_set_current_thread_priority(current_thread_priority);
+			witem = wqlist_scan_wait(&queue_priority);
 		}
 
 		/* Invoke the callback function */
@@ -987,54 +917,10 @@ get_process_limit(void) {
 
 static unsigned int
 get_runqueue_length(void) {
-	double loadavg;
-
-	/* Prefer to use the most recent measurement of the number of running KSEs
-	for Linux and the kstat unix:0:sysinfo: runque/updates ratio for Solaris .
-	*/
-
-	return linux_get_runqueue_length();
-
-	/* Fallback to using the 1-minute load average if proper run queue length
-	 * can't be determined. */
-
-	/* TODO: proper error handling */
-	if (getloadavg(&loadavg, 1) != 1) {
-		dbg_perror("getloadavg(3)");
-		return (1);
-	}
-	if (loadavg > INT_MAX || loadavg < 0) loadavg = 1;
-
-	return ((int)loadavg);
-}
-
-unsigned long
-manager_peek(const char *key) {
-	uint64_t rv;
-
-	if (strcmp(key, "combined_idle") == 0) {
-		rv = scoreboard.idle;
-		if (scoreboard.idle > worker_min) rv -= worker_min;
-		rv += ocwq_idle_threads;
-	} else if (strcmp(key, "idle") == 0) {
-		rv = scoreboard.idle;
-		if (scoreboard.idle > worker_min) rv -= worker_min;
-	} else if (strcmp(key, "ocomm_idle") == 0) {
-		rv = ocwq_idle_threads;
-	} else {
-		dbg_printf("invalid key: %s", key);
-		abort();
-	}
-
-	return rv;
-}
-
-/* Problem: does not include the length of the runqueue, and
+	/* Problem: does not include the length of the runqueue, and
 	 subtracting one from the # of actually running processes will
 	 always show free CPU even when there is none. */
 
-unsigned int
-linux_get_runqueue_length(void) {
 	int fd;
 	char buf[16384];
 	char *p;
@@ -1070,6 +956,27 @@ out:
 	(void)close(fd);
 
 	return (runqsz);
+}
+
+unsigned long
+manager_peek(const char *key) {
+	uint64_t rv;
+
+	if (strcmp(key, "combined_idle") == 0) {
+		rv = scoreboard.idle;
+		if (scoreboard.idle > worker_min) rv -= worker_min;
+		rv += ocwq_idle_threads;
+	} else if (strcmp(key, "idle") == 0) {
+		rv = scoreboard.idle;
+		if (scoreboard.idle > worker_min) rv -= worker_min;
+	} else if (strcmp(key, "ocomm_idle") == 0) {
+		rv = ocwq_idle_threads;
+	} else {
+		dbg_printf("invalid key: %s", key);
+		abort();
+	}
+
+	return rv;
 }
 
 /*
@@ -1217,9 +1124,4 @@ threads_runnable(unsigned int *threads_running, unsigned int *threads_total) {
 	*threads_total = total_count;
 
 	return 0;
-}
-
-void
-ptwq_set_current_thread_priority(int priority __attribute__((unused))) {
-	return;
 }

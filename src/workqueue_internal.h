@@ -27,11 +27,15 @@
  *
  */
 
-#ifndef _PTHREAD_WORKQUEUE_H
-#define _PTHREAD_WORKQUEUE_H
+#ifndef __DISPATCH_WORKQUEUE_INTERNAL__
+#define __DISPATCH_WORKQUEUE_INTERNAL__
 
-#include <sys/queue.h>
+#include <assert.h>
+#include <linux/unistd.h>
 #include <pthread.h>
+#include <sys/queue.h>
+#include <sys/syscall.h>
+#include <unistd.h>
 
 #ifndef PWQ_EXPORT
 #define PWQ_EXPORT extern
@@ -53,10 +57,6 @@ typedef struct {
 #define WORKQ_DEFAULT_PRIOQUEUE 1
 #define WORKQ_LOW_PRIOQUEUE 2
 #define WORKQ_BG_PRIOQUEUE 3
-
-#if defined(__cplusplus)
-extern "C" {
-#endif
 
 PWQ_EXPORT
 int pthread_workqueue_create_np(pthread_workqueue_t *workqp,
@@ -106,30 +106,8 @@ void pthread_workqueue_main_np(void);
 PWQ_EXPORT
 int pthread_workqueue_init_np(void);
 
-/* NOTE: these are not part of the Darwin API */
-PWQ_EXPORT
-unsigned long pthread_workqueue_peek_np(const char *);
-PWQ_EXPORT
-void pthread_workqueue_suspend_np(void);
-PWQ_EXPORT
-void pthread_workqueue_resume_np(void);
-
-#if defined(__cplusplus)
-}
-#endif
-#endif /* _PTHREAD_WORKQUEUE_H */
-
-#ifndef _DEBUG_H
-#define _DEBUG_H
-
-#include <assert.h>
-
 extern int DEBUG_WORKQUEUE;
 extern char *WORKQUEUE_DEBUG_IDENT;
-
-#include <linux/unistd.h>
-#include <sys/syscall.h>
-#include <unistd.h>
 
 #define THREAD_ID ((pid_t)syscall(__NR_gettid))
 
@@ -175,11 +153,6 @@ extern char *WORKQUEUE_DEBUG_IDENT;
 
 #define dbg_lasterror(str) ;
 
-#endif /* ! _DEBUG_H */
-
-#ifndef _PTWQ_PRIVATE_H
-#define _PTWQ_PRIVATE_H 1
-
 /* The maximum number of workqueues that can be created.
    This is based on libdispatch only needing 8 workqueues.
    */
@@ -218,50 +191,7 @@ extern unsigned int PWQ_ACTIVE_CPU;
  rep/nop / 0xf3+0x90 are the same as the symbolic 'pause' instruction
  */
 
-#if defined(__i386__) || defined(__x86_64__) || defined(__i386) || \
-	defined(__amd64)
-
-#if defined(__SUNPRO_CC)
-
-#define _hardware_pause() asm volatile("rep; nop\n");
-
-#elif defined(__GNUC__)
-
 #define _hardware_pause() __asm__ __volatile__("pause");
-
-#else
-
-#define _hardware_pause() __asm__("pause")
-
-#endif
-
-/* XXX-FIXME this is a stub, need to research what ARM assembly to use */
-#elif defined(__ARM_EABI__)
-
-#define _hardware_pause() __asm__("")
-
-#else
-
-/* XXX-FIXME this is a stub, need to research what assembly to use */
-#define _hardware_pause() __asm__("")
-
-#endif
-
-/*
- * The work item cache, has three different optional implementations:
- * 1. No cache, just normal malloc/free using the standard malloc library in use
- * 2. Libumem based object cache, requires linkage with libumem - for
- * non-Solaris see http://labs.omniti.com/labs/portableumem
- *    this is the most balanced cache supporting migration across threads of
- * allocated/freed witems
- * 3. TSD based cache, modelled on libdispatch continuation implementation, can
- * lead to imbalance with assymetric
- *    producer/consumer threads as allocated memory is cached by the thread
- * freeing it
- */
-#define WITEM_CACHE_TYPE \
-	1  // Otherwise fallback to normal malloc/free - change specify witem cache
-	   // implementation to use
 
 struct work {
 	STAILQ_ENTRY(work) item_entry;
@@ -279,58 +209,21 @@ struct _pthread_workqueue {
 	unsigned int wqlist_index;
 	STAILQ_HEAD(, work) item_listhead;
 	pthread_spinlock_t mtx;
-#ifdef WORKQUEUE_PLATFORM_SPECIFIC
-	WORKQUEUE_PLATFORM_SPECIFIC;
-#endif
 };
 
 /* manager.c */
 int manager_init(void);
-unsigned long manager_peek(const char *);
-void manager_suspend(void);
-void manager_resume(void);
 void manager_workqueue_create(struct _pthread_workqueue *);
 void manager_workqueue_additem(struct _pthread_workqueue *, struct work *);
 
-struct work *witem_alloc(
-	void (*func)(void *),
-	void *func_arg);  // returns a properly initialized witem
+// returns a properly initialized witem
+struct work *witem_alloc(void (*func)(void *), void *func_arg);
 void witem_free(struct work *wi);
 int witem_cache_init(void);
 void witem_cache_cleanup(void *value);
 
-#endif /* _PTWQ_PRIVATE_H */
-
-#ifndef _PTWQ_POSIX_THREAD_INFO_H
-#define _PTWQ_POSIX_THREAD_INFO_H 1
-
 int threads_runnable(unsigned int *threads_running,
 					 unsigned int *threads_total);
-
-#endif /* _PTWQ_POSIX_THREAD_INFO_H */
-
-#ifndef _PTWQ_THREAD_RT_H
-#define _PTWQ_THREAD_RT_H 1
-
-void ptwq_set_current_thread_priority(int priority);  // higher is better
-
-#endif /* _PTWQ_THREAD_RT_H */
-#ifndef _PTWQ_POSIX_PLATFORM_H
-#define _PTWQ_POSIX_PLATFORM_H 1
-
-#ifdef __FreeBSD__
-/* Workaround to get visibility for _SC_NPROCESSORS_ONLN on FreeBSD */
-#define __BSD_VISIBLE 1
-#include <sys/types.h>
-#endif
-
-#include <sys/resource.h>
-#include <sys/queue.h>
-#include <stdint.h>
-#include <string.h>
-#include <strings.h>
-#include <unistd.h>
-#include <pthread.h>
 
 /* GCC atomic builtins.
  * See: http://gcc.gnu.org/onlinedocs/gcc-4.1.0/gcc/Atomic-Builtins.html
@@ -342,25 +235,4 @@ void ptwq_set_current_thread_priority(int priority);  // higher is better
 #define atomic_and(p, v) __sync_and_and_fetch((p), (v))
 #define atomic_or(p, v) __sync_or_and_fetch((p), (v))
 
-/*
- * Android does not provide spinlocks.
- * See: http://code.google.com/p/android/issues/detail?id=21622
- */
-
-#endif /* _PTWQ_POSIX_PLATFORM_H */
-
-#ifndef _LIBPWQ_LINUX_PLATFORM_H
-#define _LIBPWQ_LINUX_PLATFORM_H
-
-/*
- * Platform-specific functions for Linux
- */
-
-unsigned int linux_get_runqueue_length(void);
-
-/*
- * Android does not provide spinlocks.
- * See: http://code.google.com/p/android/issues/detail?id=21622
- */
-
-#endif /* _LIBPWQ_LINUX_PLATFORM_H */
+#endif /* __DISPATCH_WORKQUEUE_INTERNAL__ */
