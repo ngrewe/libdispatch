@@ -114,6 +114,14 @@ void pthread_workqueue_suspend_np(void);
 PWQ_EXPORT
 void pthread_workqueue_resume_np(void);
 
+typedef void (*pthread_workqueue_function_t)(int queue_priority, int options, void *ctxt);
+PWQ_EXPORT
+int pthread_workqueue_setdispatch_np(pthread_workqueue_function_t worker_func);
+
+#define WORKQ_ADDTHREADS_OPTION_OVERCOMMIT 0x00000001
+PWQ_EXPORT
+int pthread_workqueue_addthreads_np(int queue_priority, int options, int numthreads);
+
 #if defined(__cplusplus)
 }
 #endif
