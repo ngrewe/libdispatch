@@ -152,3 +152,15 @@
    https://bugzilla.redhat.com/show_bug.cgi?id=1009623 */
 #cmakedefine01 HAS_PROBLEMATIC_UNISTD_H
 
+/* Define to 1 if you have the Block.h header */
+#cmakedefine01 HAVE_BLOCK_H
+
+/* Define to 1 if you have the Block_private.h header */
+#cmakedefine01 HAVE_BLOCK_PRIVATE_H
+
+/* Define to 1 if you have the objc/blocks_runtime.h header */
+#cmakedefine01 HAVE_OBJC_BLOCKS_RUNTIME_H
+
+/* Define to 1 if you have the objc/blocks_private.h header */
+#cmakedefine01 HAVE_OBJC_BLOCKS_PRIVATE_H
+

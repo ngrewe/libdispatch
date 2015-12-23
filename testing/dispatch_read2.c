@@ -38,7 +38,11 @@
 #if HAVE_TARGETCONDITIONALS_H
 #include <TargetConditionals.h>
 #endif
-#include <Block.h>
+#if HAVE_BLOCK_H == 1
+# include <Block.h>
+#elif HAVE_OBJC_BLOCKS_RUNTIME_H == 1
+# include <objc/blocks_runtime.h>
+#endif
 
 #include <dispatch/dispatch.h>
 

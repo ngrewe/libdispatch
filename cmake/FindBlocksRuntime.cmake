@@ -4,23 +4,47 @@ include (CheckFunctionExists)
 find_path(BLOCKS_RUNTIME_PUBLIC_INCLUDE_DIR Block.h
   DOC "Path to Block.h"
 )
+find_path(OBJC_BLOCKS_RUNTIME_INCLUDE_DIR blocks_runtime.h PATH_SUFFIXES objc
+  DOC "Path to objc/blocks_runtime.h"
+)
+
 
 if (BLOCKS_RUNTIME_PUBLIC_INCLUDE_DIR)
+  set (HAVE_BLOCK_H 1)
   list (APPEND BLOCKS_RUNTIME_INCLUDE_DIRS ${BLOCKS_RUNTIME_PUBLIC_INCLUDE_DIR})
+elseif (OBJC_BLOCKS_RUNTIME_INCLUDE_DIR)
+  set (BLOCKS_RUNTIME_PUBLIC_INCLUDE_DIR ${OBJC_BLOCKS_RUNTIME_INCLUDE_DIR})
+  set (HAVE_OBJC_BLOCKS_RUNTIME_H 1)
 endif ()
 
 find_path(BLOCKS_RUNTIME_PRIVATE_INCLUDE_DIR Block_private.h
   DOC "Path to Block_private.h"
 )
+find_path(OBJC_BLOCKS_PRIVATE_INCLUDE_DIR blocks_private.h PATH_SUFFIXES objc
+  DOC "Path to objc/blocks_private.h"
+)
+
 if (BLOCKS_RUNTIME_PRIVATE_INCLUDE_DIR)
   list (APPEND BLOCKS_RUNTIME_INCLUDE_DIRS ${BLOCKS_RUNTIME_PRIVATE_INCLUDE_DIR})
   set (BLOCKS_RUNTIME_PRIVATE_HEADERS_FOUND TRUE)
+  set (HAVE_BLOCK_PRIVATE_H 1)
+elseif (OBJC_BLOCKS_PRIVATE_INCLUDE_DIR)
+  set (BLOCKS_RUNTIME_PRIVATE_INCLUDE_DIR ${OBJC_BLOCKS_PRIVATE_INCLUDE_DIR})
+  set (HAVE_OBJC_BLOCKS_PRIVATE_H 1)
 endif ()
 
-check_function_exists(BLOCKS_RUNTIME_RUNTIME_IN_LIBC _Block_copy)
+check_function_exists (BLOCKS_RUNTIME_RUNTIME_IN_LIBC _Block_copy)
 if (NOT BLOCKS_RUNTIME_RUNTIME_IN_LIBC)
-  find_library(BLOCKS_RUNTIME_LIBRARIES "BlocksRuntime")
+  if (HAVE_BLOCK_H)
+     find_library (BLOCKS_RUNTIME_LIBRARIES "BlocksRuntime")
+  else ()
+    check_library_exists ("objc" _Block_copy "" FOUND_BLOCKS_RUNTIME)
+    if (FOUND_BLOCKS_RUNTIME)
+      set (BLOCKS_RUNTIME_LIBRARIES "objc")
+    endif ()
+  endif ()
 endif ()
+
 
 if (BLOCKS_RUNTIME_LIBRARIES OR BLOCKS_RUNTIME_RUNTIME_IN_LIBC)
   set (FOUND_BLOCKS_RUNTIME 1)
@@ -30,4 +54,3 @@ endif()
 
 find_package_handle_standard_args(BlocksRuntime
   REQUIRED_VARS FOUND_BLOCKS_RUNTIME BLOCKS_RUNTIME_PUBLIC_INCLUDE_DIR)
-

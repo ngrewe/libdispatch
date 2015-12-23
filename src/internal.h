@@ -162,8 +162,16 @@
 #include <netinet/in.h>
 
 #ifdef __BLOCKS__
-#include <Block_private.h>
-#include <Block.h>
+# if HAVE_BLOCK_PRIVATE_H == 1
+#    include <Block_private.h>
+# elif HAVE_OBJC_BLOCKS_PRIVATE_H == 1
+#   include <objc/blocks_private.h>
+# endif
+# if HAVE_BLOCK_H == 1
+#   include <Block.h>
+# elif HAVE_OBJC_BLOCKS_RUNTIME_H == 1
+#   include <objc/blocks_runtime.h>
+# endif
 #endif /* __BLOCKS__ */
 
 #include <assert.h>

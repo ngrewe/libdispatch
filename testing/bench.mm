@@ -33,7 +33,11 @@
 #include <pthread.h>
 #include <math.h>
 #ifdef __BLOCKS__
-#include <Block.h>
+# if HAVE_BLOCK_H == 1
+#   include <Block.h>
+# elif HAVE_OBJC_BLOCKS_RUNTIME_H == 1
+#   include <objc/blocks_runtime.h>
+# endif
 #endif
 #include <dispatch/dispatch.h>
 #include <dispatch/private.h>

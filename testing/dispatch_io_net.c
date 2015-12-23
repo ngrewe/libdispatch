@@ -39,7 +39,11 @@
 #if __APPLE__
 #include <mach-o/dyld.h>
 #endif
-#include <Block.h>
+#if HAVE_BLOCK_H == 1
+# include <Block.h>
+#elif HAVE_OBJC_BLOCKS_RUNTIME_H == 1
+# include <objc/blocks_runtime.h>
+#endif
 
 #include <bsdtests.h>
 #include "dispatch_test.h"
@@ -61,7 +65,7 @@ get_executable_path(char *buf, uint32_t *bufsize)
 {
 #if __APPLE__
 	return _NSGetExecutablePath(buf, bufsize);
-	
+
 #elif __linux__
 	char path_buf[PATH_MAX];
 	if (!realpath("/proc/self/exe", path_buf)) {
@@ -69,7 +73,7 @@ get_executable_path(char *buf, uint32_t *bufsize)
 	}
 
 	size_t actual_length = strlen(path_buf);
-	
+
 	if (actual_length >= *bufsize) {
 		*bufsize = actual_length + 1;
 		return -1;
